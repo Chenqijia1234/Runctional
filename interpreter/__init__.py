@@ -10,6 +10,9 @@
     0.0.1 DEV_2 实现模块 + 补充测试用例
     0.0.1 DEV_3 实现字符串 + repl括号匹配与多行输入
     0.0.1 DEV_4 扩充标准库
+更新日志
+    0.0.1 DEV_1 最小可用版本
+    0.0.1 DEV_1_patch_1 修复if语句的恶性bug，补充少许测试
 """
 # 参见 https://peps.python.org/pep-0563/
 # 这是一个有故事的PEP
@@ -17,16 +20,20 @@ from __future__ import annotations
 
 import math
 import operator as op
-from typing import TypeAlias, MutableMapping, Any, Final
+import sys
 from collections import ChainMap
+from typing import TypeAlias, MutableMapping, Any, Final, Union
 
-__version__ = "0.0.1 DEV_1"  # 最小可用版本
+__version__ = "0.0.1 DEV_1_patch_1"  # 最小可用版本 + 补丁修复
+
+sys.setrecursionlimit(10_0000)
 
 SourceCode: TypeAlias = str
 Symbol: TypeAlias = str
-Atom: TypeAlias = int | float | Symbol
+Atom: TypeAlias = Union[int, float, Symbol]
 TokenList: TypeAlias = list[Symbol]
-Expression: TypeAlias = list[Atom] | Atom
+Expression: TypeAlias = Union[list[Atom], Atom]
+ExpressionList: TypeAlias = list[Expression]
 Environment: TypeAlias = MutableMapping[Symbol, object]
 
 KEYWORDS: Final[list[Symbol]] = ["quote", "if", "define", "lambda", "cond", "or", "and"]
@@ -94,6 +101,7 @@ class Function:
     def invoke(self, *args: Expression) -> Any:
         function_internal_env = dict(zip(self.params, args, strict=True))
         env: Environment = ChainMap(function_internal_env, self.definition_env)
+        result = None
         for expr in self.body:
             result = self.interpreter.evaluate(expr, env)
         return result
@@ -102,6 +110,10 @@ class Function:
 
 
 def standard_env() -> Environment:
+    def display(x: Any) -> Any:
+        print(x)
+        return x
+
     """
     标准全局环境
     """
@@ -142,6 +154,7 @@ def standard_env() -> Environment:
             "procedure?": callable,
             "round": round,
             "symbol?": lambda x: isinstance(x, Symbol),
+            "display": display,
         }
     )
     return env
@@ -164,7 +177,8 @@ class Parser:
         self.lexer = lexer
         self.tokens = self.lexer.lex()
 
-    def parse_atom(self, token: str) -> Atom:
+    @staticmethod
+    def parse_atom(token: str) -> Atom:
         """
         获得原谅比获得许可更容易。
         """
@@ -176,25 +190,39 @@ class Parser:
             except ValueError:
                 return Symbol(token)
 
-    def read_from_tokens(self, tokens: list[str]) -> Expression:
-        if len(tokens) == 0:
-            raise UnexpectedEndOfSource()
-        token = tokens.pop(0)
-        if "(" == token:
-            exp = []
-            while tokens and tokens[0] != ")":
-                exp.append(self.read_from_tokens(tokens))
-            if not tokens:
-                raise UnexpectedEndOfSource()
-            tokens.pop(0)  # ')'
-            return exp
-        elif ")" == token:
-            raise UnexpectedCloseParentheses()
-        else:
-            return self.parse_atom(token)
+    def read_from_tokens(self, tokens: TokenList) -> ExpressionList:
+        """
+        自己手写的升级版
+        """
+        return self._parse_code_structure(tokens)
 
     def parse(self) -> Expression:
         return self.read_from_tokens(self.tokens)
+
+    def _parse_code_structure(self, tokens) -> ExpressionList:
+        def _parse(tokens: list[Symbol]) -> Expression:
+            if len(tokens) == 0:
+                raise UnexpectedEndOfSource()
+
+            token = tokens.pop(0)
+
+            if "(" == token:
+                exp = []
+                while tokens and tokens[0] != ")":
+                    exp.append(_parse(tokens))
+                if not tokens:
+                    raise UnexpectedEndOfSource()
+                tokens.pop(0)  # ')'
+                return exp
+            elif ")" == token:
+                raise UnexpectedCloseParentheses()
+            else:
+                return Parser.parse_atom(token)
+
+        result = []
+        while len(tokens) > 0:
+            result.append(_parse(tokens))
+        return result
 
 
 class Interpreter:
@@ -221,21 +249,21 @@ class Interpreter:
                 return expr
             case ["if", cond, then, else_]:
                 if self.evaluate(cond, env):
-                    self.evaluate(then, env)
+                    return self.evaluate(then, env)
                 else:
-                    self.evaluate(else_, env)
+                    return self.evaluate(else_, env)
             case ["define", Symbol(var), value]:
                 env[var] = self.evaluate(value, env)
             case ["define", [Symbol(func_name), *params], *body] if len(body) > 0:
-                env[func_name] = Function(*params, *body, env, self)
+                env[func_name] = Function(params, body, env, self)
             case ["lambda", [*params], *body] if len(body) > 0:
-                return Function(*params, *body, env, self)
+                return Function(params, body, env, self)
             case ["cond", *expressions]:
-                return self.cond_form(expressions)
+                return self.cond_form(expressions, env)
             case ["or", *expressions]:
-                return self.or_form(expressions)
+                return self.or_form(expressions, env)
             case ["and", *expressions]:
-                return self.and_form(expressions)
+                return self.and_form(expressions, env)
             case [op, *args] if op not in KEYWORDS:
                 proc = self.evaluate(op, env)
                 values = tuple(self.evaluate(arg, env) for arg in args)
@@ -249,6 +277,7 @@ class Interpreter:
                 raise InvaildSyntax(lispstr(expr))
 
     def cond_form(self, clauses: list[Expression], env: Environment) -> Any:
+        result = None
         for clause in clauses:
             match clause:
                 case ["else", *body]:
@@ -276,8 +305,15 @@ class Interpreter:
                 return value
         return value
 
-    def eval(self, env: Environment) -> Any:
-        return self.evaluate(self.parser.parse(), env)
+    def interpret(self, env: Environment = standard_env()) -> Any:
+        result = None
+        for i in self.parser.parse():
+            result = self.evaluate(i, env)
+        return result
+
+
+def code_exec(code: SourceCode, env: Environment = standard_env()) -> Any:
+    return Interpreter(Parser(Lexer(code))).interpret(env)
 
 
 def repl(prompt: str = ">>> ") -> None:
@@ -288,7 +324,7 @@ def repl(prompt: str = ">>> ") -> None:
     while True:
         code = input(prompt)
         try:
-            result = Interpreter(Parser(Lexer(code))).eval(global_env)
+            result = code_exec(code, global_env)
         except Exception as e:
             print(f"{e.__class__.__name__}{e}")
         else:
@@ -296,5 +332,17 @@ def repl(prompt: str = ">>> ") -> None:
                 print(result)
 
 
-if __name__ == "__main__":
-    repl()
+class SourceFile:
+    def __init__(self, file_name: str) -> None:
+        fp = open(file_name, "r", encoding="utf-8")
+        self.source: SourceCode = "".join([i for i in fp.readlines()])
+        fp.close()
+
+    def lex(self) -> TokenList:
+        return Lexer(self.source).lex()
+
+    def parse(self) -> Expression:
+        return Parser(Lexer(self.source)).parse()
+
+    def interprete(self, env: Environment = standard_env()) -> Any:
+        return Interpreter(Parser(Lexer(self.source))).interpret(env)
