@@ -219,7 +219,7 @@ def test_call_builtin_append(std_env: Environment) -> None:
 
 
 def test_call_builtin_map(std_env: Environment) -> None:
-    source = '(map (lambda (x) (* x 2)) (quote (1 2 3))))'
+    source = '(map (lambda (x) (* x 2)) (quote (1 2 3)))'
     got = evaluate(parse(source), std_env)
     assert got == [2, 4, 6]
 

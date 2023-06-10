@@ -1,5 +1,6 @@
 from interpreter import repl, code_exec
 
+
 def main() -> None:
     while True:
         c = input(
@@ -18,20 +19,20 @@ type>>>"""
         elif c == "3":
             print(
                 f"""源码：{
-'''
-(define (mod m n ) (- m (* n (quotient m n))))
-(define (gcd m n) (if (= n 0) m (gcd n (mod m n))))
-(gcd 18 45)
-'''}"""
+                '''
+                (define (mod m n ) (- m (* n (quotient m n))))
+                (define (gcd m n) (if (= n 0) m (gcd n (mod m n))))
+                (gcd 18 45)
+                '''}"""
             )
             print(
                 f'''运行结果:{code_exec(
-"""
-(define (mod m n ) (- m (* n (quotient m n))))
-(define (gcd m n) (if (= n 0) m (gcd n (mod m n))))
-(gcd 18 45)
-"""
-            )}'''
+                    """
+                    (define (mod m n ) (- m (* n (quotient m n))))
+                    (define (gcd m n) (if (= n 0) m (gcd n (mod m n))))
+                    (gcd 18 45)
+                    """
+                )}'''
             )
         elif c == "4":
             print("暂缺。")
