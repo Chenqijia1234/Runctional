@@ -14,7 +14,7 @@ type>>>"""
         if c == "1":
             repl()
         elif c == "2":
-            run_test()
+            raise NotImplementedError()
         elif c == "3":
             print(
                 f"""源码：{
