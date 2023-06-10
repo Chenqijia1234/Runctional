@@ -13,6 +13,7 @@
 更新日志
     0.0.1 DEV_1 最小可用版本
     0.0.1 DEV_1_patch_1 修复if语句的恶性bug，补充少许测试
+    0.0.1 DEV_1_patch_2 支持尾递归优化
 """
 # 参见 https://peps.python.org/pep-0563/
 # 这是一个有故事的PEP
@@ -22,11 +23,9 @@ import math
 import operator as op
 import sys
 from collections import ChainMap
-from typing import TypeAlias, MutableMapping, Any, Final, Union
+from typing import TypeAlias, Any, Final, Union, NamedTuple
 
-__version__ = "0.0.1 DEV_1_patch_1"  # 最小可用版本 + 补丁修复
-
-sys.setrecursionlimit(10_0000)
+__version__ = "0.0.1 DEV_1_patch_2"  # 最小可用版本 + 补丁修复
 
 SourceCode: TypeAlias = str
 Symbol: TypeAlias = str
@@ -34,9 +33,28 @@ Atom: TypeAlias = Union[int, float, Symbol]
 TokenList: TypeAlias = list[Symbol]
 Expression: TypeAlias = Union[list[Atom], Atom]
 ExpressionList: TypeAlias = list[Expression]
-Environment: TypeAlias = MutableMapping[Symbol, object]
 
-KEYWORDS: Final[list[Symbol]] = ["quote", "if", "define", "lambda", "cond", "or", "and"]
+KEYWORDS_1 = ['quote', 'if', 'define', 'lambda']
+KEYWORDS_2 = ['set!', 'cond', 'or', 'and', 'begin']
+KEYWORDS = KEYWORDS_1 + KEYWORDS_2
+
+
+class InterpreterConfiguration:
+    TailCallOptimizationEnabled: bool = True
+    RecursionLimit: int = 10_0000
+
+
+def init() -> None:
+    sys.setrecursionlimit(InterpreterConfiguration.RecursionLimit)
+
+
+class Environment(ChainMap):
+    def change(self, key: Symbol, value: object) -> None:
+        for map in self.maps:
+            if key == map:
+                map[key] = value
+                return
+        raise KeyError(key)
 
 
 def lispstr(exp: object) -> str:
@@ -73,7 +91,7 @@ class UnexpectedEndOfSource(InterpreterException):
     pass
 
 
-class InvaildSyntax(InterpreterException):
+class InvalidSyntax(InterpreterException):
     pass
 
 
@@ -81,32 +99,34 @@ class EvaluatorException(InterpreterException):
     pass
 
 
-class UndefindSymbol(InterpreterException):
+class UndefinedSymbol(InterpreterException):
     pass
 
 
 class Function:
     def __init__(
-        self,
-        params: list[Symbol],
-        body: list[Expression],
-        env: Environment,
-        interpreter_instance: Interpreter,
+            self,
+            params: list[Symbol],
+            body: list[Expression],
+            env: Environment,
+            interpreter_instance: Interpreter,
     ) -> None:
         self.params = params
         self.body = body
         self.definition_env = env
         self.interpreter = interpreter_instance
 
-    def invoke(self, *args: Expression) -> Any:
+    def application_env(self, *args: list[Expression]) -> Any:
         function_internal_env = dict(zip(self.params, args, strict=True))
-        env: Environment = ChainMap(function_internal_env, self.definition_env)
+        env: Environment = Environment(function_internal_env, self.definition_env)
+        return env
+
+    def __call__(self, *args: Expression) -> Any:
+        env = self.application_env(*args)
         result = None
         for expr in self.body:
             result = self.interpreter.evaluate(expr, env)
         return result
-
-    __call__ = invoke
 
 
 def standard_env() -> Environment:
@@ -117,7 +137,7 @@ def standard_env() -> Environment:
     """
     标准全局环境
     """
-    env: Environment = {}
+    env: Environment = Environment()
     env.update(vars(math))
     env.update(
         {
@@ -226,6 +246,10 @@ class Parser:
 
 
 class Interpreter:
+    """
+    :since 0.0.1 DEV_1_patch_2 ⭐⭐⭐ 尾递归优化！！！
+    """
+
     def __init__(self, parser: Parser) -> None:
         self.parser = parser
 
@@ -237,44 +261,58 @@ class Interpreter:
             https://peps.python.org/pep-0635/
             https://peps.python.org/pep-0636/
         """
-        match expr:
-            case int(x) | float(x):
-                return x
-            case Symbol(var):
-                try:
-                    return env[var]
-                except KeyError as err:
-                    raise UndefindSymbol(var) from err
-            case ["quote", expr]:
-                return expr
-            case ["if", cond, then, else_]:
-                if self.evaluate(cond, env):
-                    return self.evaluate(then, env)
-                else:
-                    return self.evaluate(else_, env)
-            case ["define", Symbol(var), value]:
-                env[var] = self.evaluate(value, env)
-            case ["define", [Symbol(func_name), *params], *body] if len(body) > 0:
-                env[func_name] = Function(params, body, env, self)
-            case ["lambda", [*params], *body] if len(body) > 0:
-                return Function(params, body, env, self)
-            case ["cond", *expressions]:
-                return self.cond_form(expressions, env)
-            case ["or", *expressions]:
-                return self.or_form(expressions, env)
-            case ["and", *expressions]:
-                return self.and_form(expressions, env)
-            case [op, *args] if op not in KEYWORDS:
-                proc = self.evaluate(op, env)
-                values = tuple(self.evaluate(arg, env) for arg in args)
-                try:
-                    return proc(*values)
-                except TypeError as err:
-                    raise EvaluatorException(
-                        f"{err!r} in {lispstr(expr)} \n AST = {expr!r}"
-                    )
-            case _:
-                raise InvaildSyntax(lispstr(expr))
+        while True:
+            match expr:
+                case int(x) | float(x):
+                    return x
+                case Symbol(var):
+                    try:
+                        return env[var]
+                    except KeyError as err:
+                        raise UndefinedSymbol(var) from err
+                case ["quote", expr]:
+                    return expr
+                case ["if", cond, then, else_]:
+                    if self.evaluate(cond, env):
+                        expr = then
+                    else:
+                        expr = else_
+                case ["set!", Symbol(var), value]:
+                    env.change(var, self.evaluate(value, env))
+                    return
+                case ["define", Symbol(var), value]:
+                    env[var] = self.evaluate(value, env)
+                    return
+                case ["define", [Symbol(func_name), *params], *body] if len(body) > 0:
+                    env[func_name] = Function(params, body, env, self)
+                    return
+                case ["lambda", [*params], *body] if len(body) > 0:
+                    return Function(params, body, env, self)
+                case ["cond", *expressions]:
+                    return self.cond_form(expressions, env)
+                case ["or", *expressions]:
+                    return self.or_form(expressions, env)
+                case ["and", *expressions]:
+                    return self.and_form(expressions, env)
+                case ["begin", *expressions]:
+                    for exp in expressions[:-1]:
+                        self.evaluate(exp, env)
+                    expr = expressions[-1]
+                case [op, *args] if op not in KEYWORDS:
+                    proc = self.evaluate(op, env)
+                    values = tuple(self.evaluate(arg, env) for arg in args)
+                    if InterpreterConfiguration.TailCallOptimizationEnabled and isinstance(proc, Function):
+                        expr = ["begin", *proc.body]
+                        env = proc.application_env(*values)
+                    else:
+                        try:
+                            return proc(*values)
+                        except TypeError as err:
+                            raise EvaluatorException(
+                                f"{err!r} in {lispstr(expr)} \n AST = {expr!r}"
+                            )
+                case _:
+                    raise InvalidSyntax(lispstr(expr))
 
     def cond_form(self, clauses: list[Expression], env: Environment) -> Any:
         result = None
@@ -344,5 +382,8 @@ class SourceFile:
     def parse(self) -> Expression:
         return Parser(Lexer(self.source)).parse()
 
-    def interprete(self, env: Environment = standard_env()) -> Any:
+    def interpret(self, env: Environment = standard_env()) -> Any:
         return Interpreter(Parser(Lexer(self.source))).interpret(env)
+
+
+init()
