@@ -1,6 +1,4 @@
 from interpreter import repl, code_exec
-from tests import run_test
-
 
 def main() -> None:
     while True:
