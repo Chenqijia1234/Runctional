@@ -142,6 +142,36 @@ pub fn default_env() -> LispEnv {
             Ok(LispExpr::Number(sum))
         }),
     );
+    data.insert(
+        "print".to_string(),
+        LispExpr::Func(|args| -> Result<LispExpr, LispError> {
+            for arg in args {
+                match arg {
+                    LispExpr::Number(num) => {
+                        io::stdout().write_all(num.to_string().as_bytes()).unwrap();
+                    }
+                    LispExpr::Symbol(symbol) => {
+                        io::stdout().write_all(symbol.as_bytes()).unwrap();
+                        println!("// Warn => `variables are not supported currently.`");
+                    }
+                    LispExpr::List(list) => {
+                        io::stdout().write_all(b"(").unwrap();
+                        for expr in list {
+                            eval(expr, &mut default_env())?;
+                            io::stdout().write_all(b" ").unwrap();
+                        }
+                        io::stdout().write_all(b")").unwrap();
+                    }
+                    LispExpr::Func(_) => {
+                        return Err(LispError::Reason(
+                            "a function is not allowed here.".to_string(),
+                        ))
+                    }
+                }
+            }
+            Ok(LispExpr::List(Vec::from(args)))
+        }),
+    );
     LispEnv { data }
 }
 

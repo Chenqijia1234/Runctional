@@ -33,3 +33,11 @@ fn test_list() {
         LispExpr::Number(4.0)
     );
 }
+
+#[test]
+fn test_print() {
+    assert_eq!(
+        eval("(print 3)").unwrap(),
+        LispExpr::List(vec![LispExpr::Number(3.0)])
+    );
+}
