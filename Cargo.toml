@@ -1,0 +1,8 @@
+[package]
+name = "runctional-core-interpreter"
+version = "0.0.0"
+edition = "2021"
+authors = ["chenqijia1234"]
+repository = "https://github.com/chenqijia1234/runctional"
+
+[dependencies]
