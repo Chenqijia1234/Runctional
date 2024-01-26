@@ -182,7 +182,7 @@ fn parse_eval(expr: String, env: &mut LispEnv) -> Result<LispExpr, LispError> {
 
 pub fn run_repl() {
     let env = &mut default_env();
-    println!("Welcome to Runctional Repl written in Rust. Supports `+` operator only.");
+    println!("Welcome to Runctional Repl written in Rust. Supports `+`,`-`,`*`,`/` operator.");
     println!("Input `.exit` to quit.");
     loop {
         print!("RunctionalExpr > ");
