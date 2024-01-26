@@ -93,11 +93,40 @@ pub fn default_env() -> LispEnv {
         "-".to_string(),
         LispExpr::Func(|args| -> Result<LispExpr, LispError> {
             let floats = parse_float_list(args)?;
-            let first = *floats.first().ok_or(LispError::Reason(
-                "too few arguments were given.".to_string(),
-            ))?;
-            let result = floats.iter().skip(1).fold(first, |total, cur| total - cur);
-            Ok(LispExpr::Number(result))
+            let first = *floats
+                .first()
+                .ok_or(LispError::Reason(
+                    "too few arguments were given.".to_string(),
+                ))
+                .unwrap();
+            let sum = floats.iter().skip(1).fold(first, |sum, next| sum - next);
+            Ok(LispExpr::Number(sum))
+        }),
+    );
+    data.insert(
+        "*".to_string(),
+        LispExpr::Func(|args| -> Result<LispExpr, LispError> {
+            let sum = parse_float_list(args)?
+                .iter()
+                .fold(1.0, |sum, next| sum * next);
+            Ok(LispExpr::Number(sum))
+        }),
+    );
+    data.insert(
+        "/".to_string(),
+        LispExpr::Func(|args| -> Result<LispExpr, LispError> {
+            let floats = parse_float_list(args)?;
+            if floats.contains(&0.0) {
+                return Err(LispError::Reason("divide by zero.".to_string()));
+            }
+            let first = *floats
+                .first()
+                .ok_or(LispError::Reason(
+                    "too few arguments were given.".to_string(),
+                ))
+                .unwrap();
+            let sum = floats.iter().skip(1).fold(first, |sum, next| sum / next);
+            Ok(LispExpr::Number(sum))
         }),
     );
     LispEnv { data }
